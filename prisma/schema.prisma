@@ -1,0 +1,103 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id        String   @id
+  sid       String   @unique
+  data      String   @db.Text
+  expiresAt   DateTime
+}
+
+model User {
+  id      String      @id @default(uuid())
+  githubId String? @unique
+  username   String   @unique
+  password String?
+  profilePic String?
+  bio String?
+  location String?
+  website String?
+  isPrivate Boolean @default(false)
+  posts Post[] @relation("UserPosts")
+  reposts Repost[] @relation("UserReposts")
+  likes Like[] @relation("UserLikes")
+  comments Comment[]
+  sentFollowRequests FollowRequest[] @relation("FollowRequestSender")
+  receivedFollowRequests FollowRequest[] @relation("FollowRequestRecipient")
+  following User[] @relation("UserFollowingFollowers")
+  followers User[] @relation("UserFollowingFollowers")
+  blockList User[] @relation("UserBlocks")
+  blockedBy User[] @relation("UserBlocks")
+}
+
+model Post {
+  id      String      @id @default(uuid())
+  content String
+  attachment String?
+  postedAt DateTime @default(now())
+  User    User @relation("UserPosts", fields: [userId], references: [id])
+  userId String
+  comments Comment[]
+  reposts Repost[] @relation("PostReposts")
+  likedBy Like[] @relation("PostLikes")
+  hashtags Hashtag[]
+}
+
+model Repost {
+  id      String      @id @default(uuid())
+  originalPost Post @relation("PostReposts", fields: [postId], references: [id],  onDelete: Cascade)
+  postId String
+  repostedBy User @relation("UserReposts", fields: [userId], references: [id])
+  userId String
+  repostedAt DateTime @default(now())
+
+  @@unique([postId, userId])
+}
+
+model Like {
+  id      String      @id @default(uuid())
+  originalPost Post @relation("PostLikes", fields: [postId], references: [id],  onDelete: Cascade)
+  postId String
+  likedBy User @relation("UserLikes", fields: [userId], references: [id])
+  userId String
+  likedAt DateTime @default(now())
+
+  @@unique([postId, userId])
+}
+
+model Hashtag {
+  name String @id
+  posts Post[]
+}
+
+model Comment {
+  id      String      @id @default(uuid())
+  content   String
+  postedAt DateTime @default(now())
+  User    User @relation(fields: [userId], references: [id])
+  userId String
+  Post    Post @relation(fields: [postId], references: [id], onDelete: Cascade)
+  postId String
+}
+
+model FollowRequest {
+  Sender User @relation("FollowRequestSender", fields: [senderId], references: [id])
+  senderId String
+  Recipient User @relation("FollowRequestRecipient", fields: [recipientId], references: [id])
+  recipientId String
+  resolved Boolean @default(false) 
+
+  @@id([senderId, recipientId])
+}
