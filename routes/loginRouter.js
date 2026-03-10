@@ -16,7 +16,7 @@ router.get("/github/callback",
 
     const token = jwt.sign({ id: user.id, username: user.username }, process.env.JWT_SECRETKEY, { expiresIn: "24h"});
 
-    res.redirect(`http://localhost:5173/auth/success?token=${token}`);
+    res.redirect(`https://s0cial-media-site.netlify.app/auth/success?token=${token}`);
   });
 
 module.exports = router;
