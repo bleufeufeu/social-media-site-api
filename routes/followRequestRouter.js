@@ -8,4 +8,6 @@ router.post("/:recipientId/new", verifyToken, followRequestController.handleSend
 router.put("/:senderId/accept", verifyToken, followRequestController.handleAcceptFollowRequest);
 router.put("/:senderId/deny", verifyToken, followRequestController.handleDenyFollowRequest);
 
+router.get("/incoming", verifyToken, followRequestController.returnIncomingFollowRequests);
+
 module.exports = router;

@@ -54,19 +54,121 @@ async function returnUserById(id) {
   }
 }
 
+async function returnUserByUsernamePartial(username) {
+  try {
+    const user = await prisma.user.findUnique({
+      where: {
+        username: username,
+      },
+      select: {
+        username: true,
+        profilePic: true,
+        bio: true,
+        location: true,
+        website: true,
+        isPrivate: true,
+        _count: {
+          select: {
+            followers: true,
+            following: true,
+          }
+        },
+        posts: false,
+        password: false
+      }
+    });
+    return {
+      ...user,
+      haveBeenBlocked: true,
+    };
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+
+
 async function returnAllUsersExceptSelf(userId) {
   try {
     const users = await prisma.user.findMany({
       where: {
         NOT: {
-          id: userId
+          id: userId,
+        },
+        blockList: {
+          none: {
+            id: userId
+          }
         }
       },
-      include: {
+      select: {
+        id: true,
+        githubId: true,
+        username: true,
+        profilePic: true,
+        bio: true,
+        location: true,
+        website: true,
+        isPrivate: true,
         password: false
       }
     });
-    return users;
+
+    return await Promise.all(users.map(async user => ({
+        ...user,
+        isFollowing: await checkIfFollowingUser(user.id, userId),
+        isPending: await checkIfPendingFollowRequest(user.id, userId)
+      }))
+    );
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+
+async function checkIfFollowingUser(userId, selfId) {
+  try {
+    const user = await prisma.user.findUnique({
+      where: {
+        id: userId
+      },
+      select: {
+        followers: {
+          where: {
+            id: selfId
+          },
+          select: {
+            id: true
+          }
+        },
+      }
+    });
+
+    if (!user) return null;
+    if (user.followers.length === 0) return false;
+
+    return true;
+
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+
+async function checkIfPendingFollowRequest(userId, selfId) {
+  try {
+    const pending = await prisma.followRequest.findUnique({
+      where: {
+        senderId_recipientId: {
+          senderId: selfId,
+          recipientId: userId,
+        }
+      },
+    });
+
+    if (!pending) return false;
+    return true;
+
   } catch (error) {
     console.error(error);
     throw error;
@@ -77,9 +179,10 @@ async function verifyAccessToUser(userId, selfId) {
   try {
     const user = await prisma.user.findUnique({
       where: {
-        id: userId
+        username: userId
       },
       select: {
+        id: true,
         isPrivate: true,
         followers: {
           where: {
@@ -101,6 +204,8 @@ async function verifyAccessToUser(userId, selfId) {
     });
 
     if (!user) return null;
+
+    if (user.id === selfId) return user;
 
     if (user.blockList.length > 0) return null;
     if (user.isPrivate && user.followers.length === 0) return null;
@@ -196,7 +301,7 @@ async function handleBlockUser(selfId, toBlockId) {
         where: {
             id: selfId,
             blockList: {
-              some: { id: toBlockId }
+              some: { username: toBlockId }
             }
         }
     });
@@ -211,7 +316,7 @@ async function handleBlockUser(selfId, toBlockId) {
           data: {
               blockList: {
                   disconnect: {
-                    id: toBlockId
+                    username: toBlockId
                   }
               }
           }
@@ -221,12 +326,10 @@ async function handleBlockUser(selfId, toBlockId) {
           where: {
               id: selfId,
               followers: {
-                some: { id: toBlockId }
+                some: { username: toBlockId }
               }
           }
       });
-
-      console.log(isFollower);
 
       if (isFollower) {
         await prisma.user.update({
@@ -236,7 +339,7 @@ async function handleBlockUser(selfId, toBlockId) {
           data: {
             followers: {
               disconnect : {
-                id: toBlockId
+                username: toBlockId
               }
             }
           }
@@ -247,7 +350,7 @@ async function handleBlockUser(selfId, toBlockId) {
           where: {
               id: selfId,
               following: {
-                some: { id: toBlockId }
+                some: { username: toBlockId }
               }
           }
       });
@@ -260,7 +363,7 @@ async function handleBlockUser(selfId, toBlockId) {
           data: {
             following: {
               disconnect : {
-                id: toBlockId
+                username: toBlockId
               }
             }
           }
@@ -274,7 +377,7 @@ async function handleBlockUser(selfId, toBlockId) {
           data: {
               blockList: {
                   connect: {
-                    id: toBlockId
+                    username: toBlockId
                   }
               }
           }
@@ -322,12 +425,12 @@ async function parseHashtags(content) {
   const splitContent = content.split(" ");
   let hashtagList = splitContent
                       .filter((word) => word.startsWith("#"))
-                      .map((hashtag) => hashtag.slice(1))
+                      .map((hashtag) => hashtag.toLowerCase().slice(1))
                       .filter((hashtag) => /^[a-zA-Z0-9_]+$/.test(hashtag));
   return hashtagList;
 }
 
-async function returnPostById(postId) {
+async function returnPostById(postId, selfId) {
   try {
     const result = await prisma.post.findUnique({
       where: {
@@ -336,12 +439,69 @@ async function returnPostById(postId) {
       include: {
         User: {
           select: {
-            username: true
+            username: true,
+            profilePic: true,
+            isPrivate: true,
           }
         },
-        comments: true
+        _count: {
+          select: {
+            comments: true,
+            reposts: true,
+            likedBy: true,
+          }
+        },
+        reposts: true,
+        likedBy: true,  
+        comments: {
+          include: {
+            User: {
+              select: {
+                username: true,
+                profilePic: true,
+                isPrivate: true,
+              }
+            }
+          },
+          orderBy: {
+            postedAt: "desc"
+          }
+        }
       }
     });
+
+    return {
+      ...result,
+      isReposted: result.reposts.some(user => user.userId === selfId),
+      isLiked: result.likedBy.some(user => user.userId === selfId)
+    };
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+
+async function returnAllPostsFromAllUsers() {
+  try {
+    const result = await prisma.post.findMany({
+      select: {
+        content: true,
+        attachment: true,
+        postedAt: true,
+        User: true,
+        _count: {
+          select: {
+            comments: true,
+            reposts: true,
+            likedBy: true,
+          }
+        },
+      },
+      orderBy: {
+        postedAt: "desc"
+      }
+    });
+    
     return result;
   } catch (error) {
     console.error(error);
@@ -349,20 +509,145 @@ async function returnPostById(postId) {
   }
 }
 
-async function returnAllPostsRepostsByUser(userId) {
+async function returnAllPostsByHashtag(hashtag, selfId) {
   try {
+
+    const result = await prisma.hashtag.findUnique({
+      where: {
+        name: hashtag.toLowerCase()
+      },
+      select: {
+        posts: {
+          select: {
+            id: true,
+            content: true,
+            attachment: true,
+            postedAt: true,
+            User: true,
+            _count: {
+                select: {
+                  comments: true,
+                  reposts: true,
+                  likedBy: true,
+                }
+            },
+            reposts: true,
+            likedBy: true,
+          },
+          orderBy: {
+            postedAt: "desc"
+          }
+        }
+      },
+    });
+
+    const posts = result.posts.map(post => ({
+        type: "post",
+        datetime: post.postedAt,
+        data: post,
+        isReposted: post.reposts.some(user => user.userId === selfId),
+        isLiked: post.likedBy.some(user => user.userId === selfId) 
+    }))
+    
+    return posts;
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+
+async function returnAllPostsRepostsByUser(userId, selfId) {
+  try {
+    const isBlocked = await prisma.user.findFirst({
+      where: {
+        username: userId,
+        blockedBy: {
+          some: {
+            id: selfId
+          }
+        }
+      }
+    }) !== null;
+
     const result = await prisma.user.findUnique({
       where: {
-        id: userId,
+        username: userId,
       },
       include: {
-        posts: true,
+        posts: {
+          include: {
+            User: {
+              select: {
+                username: true,
+                profilePic: true,
+                isPrivate: true,
+              }
+            },
+            _count: {
+              select: {
+                comments: true,
+                reposts: true,
+                likedBy: true,
+              }
+            },
+            reposts: true,
+            likedBy: true,
+          }
+        },
         reposts: {
-            select: {
-                originalPost: true,
-                repostedAt: true,
+          where: {
+            originalPost: {
+              User: {
+                blockedBy: {
+                  none: {
+                    id: selfId
+                  }
+                },
+                blockList: {
+                  none: {
+                    id: selfId
+                  }
+                }
+              }
             }
-        }
+          },
+          include: {
+            repostedBy: {
+              select: {
+                username: true,
+                profilePic: true,
+                isPrivate: true,
+              }
+            },
+            originalPost: {
+              include: {
+                User: {
+                  select: {
+                    username: true,
+                    profilePic: true,
+                    isPrivate: true,
+                  }
+                },
+                _count: {
+                  select: {
+                    comments: true,
+                    reposts: true,
+                    likedBy: true,
+                  }
+                },
+                reposts: true,
+                likedBy: true,
+              }
+            },
+          },
+        },
+        _count: {
+          select: {
+            followers: true,
+            following: true,
+          }
+        },
+        password: false
       }
     });
 
@@ -372,12 +657,17 @@ async function returnAllPostsRepostsByUser(userId) {
         ...result.posts.map(post => ({
             type: "post",
             datetime: post.postedAt,
-            data: post
+            data: post,
+            isReposted: post.reposts.some(user => user.userId === selfId),
+            isLiked: post.likedBy.some(user => user.userId === selfId) 
         })),
         ...result.reposts.map(repost => ({
             type: "repost",
             datetime: repost.repostedAt,
-            data: repost.originalPost
+            data: repost.originalPost,
+            repostedBy: repost.repostedBy,
+            isReposted: repost.originalPost.reposts.some(user => user.userId === selfId),
+            isLiked: repost.originalPost.likedBy.some(user => user.userId === selfId)
         }))
     ];
 
@@ -386,6 +676,9 @@ async function returnAllPostsRepostsByUser(userId) {
     return {
         ...result,
         combinedPosts: combinedPosts,
+        isBlocked: isBlocked,
+        isFollowing: await checkIfFollowingUser(result.id, selfId),
+        isPending: await checkIfPendingFollowRequest(result.id, selfId)
     };
   } catch (error) {
     console.error(error);
@@ -399,13 +692,61 @@ async function returnAllPostsRepostsFromFollowing(userId) {
       where: {
         id: userId,
       },
-      include: {
-        posts: true,
-        reposts: {
-            select: {
-                originalPost: true,
-                repostedAt: true,
+      select: {
+        following: {
+          select: {
+            posts: {
+              include: {
+                User: {
+                  select: {
+                    username: true,
+                    profilePic: true,
+                    isPrivate: true,
+                  }
+                },
+                _count: {
+                  select: {
+                    comments: true,
+                    reposts: true,
+                    likedBy: true,
+                  }
+                },
+                reposts: true,
+                likedBy: true,
+              }
+            },
+            reposts: {
+              include: {
+                repostedBy: {
+                  select: {
+                    username: true,
+                    profilePic: true,
+                    isPrivate: true,
+                  }
+                },
+                originalPost: {
+                  include: {
+                    User: {
+                      select: {
+                        username: true,
+                        profilePic: true,
+                        isPrivate: true,
+                      }
+                    },
+                    _count: {
+                      select: {
+                        comments: true,
+                        reposts: true,
+                        likedBy: true,
+                      }
+                    },
+                    reposts: true,
+                    likedBy: true,
+                  }
+                },
+              },
             }
+          }
         }
       }
     });
@@ -413,16 +754,23 @@ async function returnAllPostsRepostsFromFollowing(userId) {
     if (!result) return null;
 
     const combinedPosts = [
-        ...result.posts.map(post => ({
+        ...result.following.flatMap(follow => 
+          (follow.posts.map(post => ({
             type: "post",
             datetime: post.postedAt,
-            data: post
-        })),
-        ...result.reposts.map(repost => ({
+            data: post,
+            isReposted: post.reposts.some(user => user.userId === userId),
+            isLiked: post.likedBy.some(user => user.userId === userId) 
+        })))),
+        ...result.following.flatMap(follow => 
+          (follow.reposts.map(repost => ({
             type: "repost",
             datetime: repost.repostedAt,
-            data: repost.originalPost
-        }))
+            data: repost.originalPost,
+            repostedBy: repost.repostedBy,
+            isReposted: repost.originalPost.reposts.some(user => user.userId === userId),
+            isLiked: repost.originalPost.likedBy.some(user => user.userId === userId)
+        })))),
     ];
 
     combinedPosts.sort((a, b) => b.datetime - a.datetime);
@@ -437,23 +785,75 @@ async function returnAllPostsRepostsFromFollowing(userId) {
   }
 }
 
-async function returnAllLikesByUser(userId) {
+async function returnAllLikesByUser(userId, selfId) {
   try {
     const result = await prisma.user.findUnique({
       where: {
-        id: userId,
+        username: userId,
       },
-      include: {
+      select: {
         likes: {
-            select: {
-                originalPost: true,
-                likedAt: true,
+          where: {
+            originalPost: {
+              User: {
+                blockedBy: {
+                  none: {
+                    id: selfId
+                  }
+                },
+                blockList: {
+                  none: {
+                    id: selfId
+                  }
+                }
+              }
             }
+          },
+          select: {
+              originalPost: {
+                include: {
+                  User: {
+                    select: {
+                      username: true,
+                      profilePic: true,
+                      isPrivate: true,
+                    }
+                  },
+                  _count: {
+                    select: {
+                      comments: true,
+                      reposts: true,
+                      likedBy: true,
+                    }
+                  },
+                  reposts: true,
+                  likedBy: true,
+                },
+              },
+          },
+          orderBy: {
+            likedAt: "desc",
+          }
         }
       }
     });
+
+    if (!result) return null;
+
+    const likes = [
+        ...result.likes.map(like => ({
+            type: "post",
+            datetime: like.originalPost.postedAt,
+            data: like.originalPost,
+            isReposted: like.originalPost.reposts.some(user => user.userId === selfId),
+            isLiked: like.originalPost.likedBy.some(user => user.userId === selfId) 
+        }))
+    ];
     
-    return result;
+    return {
+      ...result,
+      likes: likes
+    }
   } catch (error) {
     console.error(error);
     throw error;
@@ -621,8 +1021,20 @@ async function handleSendFollowRequest(senderId, recipientId) {
         let followRequest;
         
         if (alreadyRequested) return null;
-        if (alreadyFollowing) return null;
-        else {
+        if (alreadyFollowing) {
+          result = await prisma.user.update({
+          where: {
+              id: senderId
+          },
+          data: {
+                  following: {
+                      disconnect: {
+                        id: recipientId
+                      }
+                  }
+              }
+          });
+        } else {
             followRequest = await prisma.followRequest.create({
                 data: {
                     senderId: senderId,
@@ -651,6 +1063,27 @@ async function returnFollowRequest(senderId, recipientId) {
       });
   
       return followRequest;
+
+  } catch (error) {
+      console.error(error);
+      throw error;
+  }
+}
+
+async function returnIncomingFollowRequests(recipientId) {
+  try {
+      const followRequests = await prisma.followRequest.findMany({
+          where: {
+              recipientId: recipientId
+          }
+      });
+
+      const detailedRequests = await Promise.all(
+        followRequests.map((request) => (
+        returnUserById(request.senderId)))  
+      );
+  
+      return detailedRequests;
 
   } catch (error) {
       console.error(error);
@@ -709,10 +1142,29 @@ async function handleDenyFollowRequest(senderId, recipientId) {
   }
 }
 
+//FILE QUERIES
+async function createFile(name, size, userId, url) {
+  try {
+    const file = await prisma.file.create({
+      data: {
+        name: name,
+        size: size,
+        userId: userId,
+        url: url,
+      },
+    });
+    return file;
+  } catch (error) {
+    console.error(error);
+    throw error;
+  }
+}
+
 module.exports = {
   createUser,
   returnUserByUsername,
   returnUserById,
+  returnUserByUsernamePartial,
   returnAllUsersExceptSelf,
   verifyAccessToUser,
   updateUserPassword,
@@ -722,7 +1174,8 @@ module.exports = {
 
   createPost,
   returnPostById,
-  // returnAllPostsReposts,
+  returnAllPostsFromAllUsers,
+  returnAllPostsByHashtag,
   returnAllPostsRepostsByUser,
   returnAllPostsRepostsFromFollowing,
   returnAllLikesByUser,
@@ -736,6 +1189,9 @@ module.exports = {
 
   handleSendFollowRequest,
   returnFollowRequest,
+  returnIncomingFollowRequests,
   handleAcceptFollowRequest,
   handleDenyFollowRequest,
+
+  createFile
 };

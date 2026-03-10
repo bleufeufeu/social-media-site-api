@@ -62,8 +62,22 @@ async function handleDenyFollowRequest(req, res) {
   }
 }
 
+async function returnIncomingFollowRequests(req, res) {
+  try {
+    if (!req.user) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    const requests = await db.returnIncomingFollowRequests(req.user.id);
+  
+    return res.status(201).json(requests);
+  } catch (error) {
+    return res.status(500).json({ error: error.message })
+  }
+}
+
 module.exports = {
   handleSendFollowRequest,
   handleAcceptFollowRequest,
-  handleDenyFollowRequest
+  handleDenyFollowRequest,
+  returnIncomingFollowRequests
 };

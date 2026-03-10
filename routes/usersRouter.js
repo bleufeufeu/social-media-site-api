@@ -25,7 +25,7 @@ router.put("/me/newpassword", verifyToken, [
       return true;
     }),
   ],
-  usersController.handleUpdatePassword)
+  usersController.handleUpdatePassword);
 
 router.put("/:toBlockId/block", verifyToken, usersController.handleBlockUser);
 

@@ -17,7 +17,7 @@ async function handleCreatePost(req, res) {
 
 async function handleReturnPostIndividual(req, res) {
   const { postId } = req.params;
-  const post = await db.returnPostById(postId);
+  const post = await db.returnPostById(postId, req.user.id);
  
   if (!post) {
     return res.status(404).json({ error: "Post not found"});
@@ -30,6 +30,41 @@ async function handleReturnPostIndividual(req, res) {
     return res.status(500).json({ error: error.message })
   }
 }
+
+async function handleReturnAllPostsFromAllUsers(req, res) {
+  try {
+    const posts = await db.returnAllPostsFromAllUsers();
+
+    return res.status(200).json(posts);
+    
+  } catch (error) {
+    return res.status(500).json({ error: error.message })
+  }
+}
+
+async function handleReturnAllPostsByHashtag(req, res) {
+  try {
+    const { hashtagName } = req.params;
+    const posts = await db.returnAllPostsByHashtag(hashtagName, req.user.id);
+ 
+    return res.status(200).json(posts);
+    
+  } catch (error) {
+    return res.status(500).json({ error: error.message })
+  }
+}
+
+async function handleReturnAllPostsFromFollowing(req, res) {
+  try {
+    const posts = await db.returnAllPostsRepostsFromFollowing(req.user.id);
+
+    return res.status(200).json(posts);
+    
+  } catch (error) {
+    return res.status(500).json({ error: error.message })
+  }
+}
+
 
 async function handleRepost(req, res) {
   try {
@@ -61,7 +96,7 @@ async function handleDeletePost(req, res) {
   try {
     const { postId } = req.params;
 
-    const post = await db.returnPostById(postId);
+    const post = await db.returnPostById(postId, req.user.id);
 
     if (post.userId !== req.user.id) {
       return res.status(404).json({ error: "Forbidden"});
@@ -79,6 +114,9 @@ async function handleDeletePost(req, res) {
 module.exports = {
   handleCreatePost,
   handleReturnPostIndividual,
+  handleReturnAllPostsFromAllUsers,
+  handleReturnAllPostsByHashtag,
+  handleReturnAllPostsFromFollowing,
   handleRepost,
   handleLike,
   handleDeletePost

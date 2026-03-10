@@ -9,6 +9,7 @@ const usersRouter = require("./routes/usersRouter");
 const postsRouter = require("./routes/postsRouter");
 const commentsRouter = require("./routes/commentsRouter");
 const followRequestRouter = require("./routes/followRequestRouter");
+const uploadRouter = require("./routes/uploadRouter");
 
 const app = express();
 const cors = require("cors");
@@ -38,5 +39,6 @@ app.use("/users", usersRouter);
 app.use("/posts", postsRouter);
 app.use("/comments", commentsRouter);
 app.use("/follow", followRequestRouter);
+app.use("/upload", uploadRouter);
 
 app.listen(3000, () => console.log("app listening on port 3000!"));

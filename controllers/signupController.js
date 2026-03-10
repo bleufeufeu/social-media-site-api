@@ -10,7 +10,6 @@ async function handleSignUp(req, res) {
       return res.status(422).json({ errors: errors.array() });
     }
     const hashedPassword = await bcrypt.hash(req.body.password, 10);
-    console.log(req.body.username);
     await db.createUser(
       req.body.username,
       hashedPassword,

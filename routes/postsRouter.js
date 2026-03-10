@@ -7,7 +7,10 @@ const postsController = require("../controllers/postsController.js");
 
 router.post("/new", verifyToken, postsController.handleCreatePost);
 
+router.get("/all", verifyToken, postsController.handleReturnAllPostsFromAllUsers);
+router.get("/following", verifyToken, postsController.handleReturnAllPostsFromFollowing);
 router.get("/:postId", verifyToken, postsController.handleReturnPostIndividual);
+router.get("/hashtag/:hashtagName", verifyToken, postsController.handleReturnAllPostsByHashtag);
 
 router.post("/:postId/comment", verifyToken, commentsController.handleCreateComment);
 
